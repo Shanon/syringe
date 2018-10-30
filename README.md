@@ -67,6 +67,8 @@ If you want to change the delimiter, please specify `--delim-left` and `--delim-
 ## Template functions
 
 The function of the following, you can call in the template.
+sprig functions included.
+see [sprig document](http://masterminds.github.io/sprig/).
 
 ### `exec`
 

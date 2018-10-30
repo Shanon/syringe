@@ -10,6 +10,7 @@ import (
 	"strings"
 	gotemplate "text/template"
 
+	"github.com/Masterminds/sprig"
 	"github.com/mattn/go-shellwords"
 )
 
@@ -22,6 +23,9 @@ func Merge(template, left, right string, m map[string]interface{}) (string, erro
 		"toPrefixLen":  toPrefixLen,
 		"toSubnetMask": toSubnetMask,
 		"exec":         exec,
+	}
+	for k, v := range sprig.FuncMap() {
+		funcMap[k] = v
 	}
 	t = t.Funcs(funcMap)
 	t, err := t.Parse(template)
