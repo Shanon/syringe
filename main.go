@@ -15,11 +15,13 @@ import (
 )
 
 const (
-	VERSION string = "0.1.1"
+	VERSION string = "0.1.2"
 )
 
 type flagSet struct {
 	Backend    string            `short:"b" long:"backend" description:"Backend type" default:"toml" default-mask:"toml" env:"SY_BACKEND"`
+	Template   string            `short:"t" long:"template" description:"Template File"`
+	VarFile    string            `short:"V" long:"variable-file" description:"Variable File" default:"-"`
 	Debug      bool              `long:"debug" description:"Enable debug logging" env:"SY_DEBUG"`
 	DelimLeft  string            `long:"delim-left" env:"SY_DELIML" description:"Template start delimiter" default:"{{" default-mask:"{{"`
 	DelimRight string            `long:"delim-right" env:"SY_DELIMR" description:"Template end delimiter" default:"}}" default-mask:"}}"`
@@ -66,46 +68,26 @@ func (c *cli) run(args []string) int {
 		return 1
 	}
 
-	keyValue := map[string]interface{}{}
-
-	if !terminal.IsTerminal(0) && fmt.Sprintf("%s", c.inStream) != "" {
-		log.Debug("Get the key/values from pipe...", c.outStream)
-		pipe, err := ioutil.ReadAll(c.inStream)
-		if err != nil {
-			log.Error(fmt.Sprintf("%s", err), c.errStream)
-			return 1
-		}
-		pipeKeyValue, err := backend.GetKeyValueFromString(flag.Backend, string(pipe))
-		if err != nil {
-			log.Error(fmt.Sprintf("%s", err), c.errStream)
-			return 1
-		}
-		keyValue = mergeMapIfaceIface(keyValue, pipeKeyValue)
-		log.Debug(fmt.Sprintf("Current key/value %+v", keyValue), c.outStream)
+	tmplFile := args[0]
+	if flag.Template != "" {
+		tmplFile = flag.Template
 	}
 
-	log.Debug("Get the key/value from backends...", c.outStream)
-	backendKeyValue, err := backend.GetKeyValueFromBackends(flag.Backend, args[1:])
+	keyValue, err := c.loadKeyValue( tmplFile, flag.VarFile, flag.Variable, flag.Backend, args )
 	if err != nil {
-		log.Error(fmt.Sprintf("%s", err), c.errStream)
+		log.Error( fmt.Sprintf("%s", err ), c.errStream )
 		return 1
-	}
-	keyValue = mergeMapIfaceIface(keyValue, backendKeyValue)
-	log.Debug(fmt.Sprintf("Current key/value %+v", keyValue), c.outStream)
-
-	if len(flag.Variable) > 0 {
-		log.Debug("Get the key/values from v flag...", c.outStream)
-		mergeMapIfaceString(keyValue, flag.Variable)
-		log.Debug(fmt.Sprintf("Current key/values %+v", keyValue), c.outStream)
 	}
 
 	log.Debug("Merge the key/values and template...", c.outStream)
-	b, err := ioutil.ReadFile(args[0])
+
+	bufTmpl, err := c.loadTemplate( tmplFile )
 	if err != nil {
 		log.Error(fmt.Sprintf("%s", err), c.errStream)
 		return 1
 	}
-	merged, err := template.Merge(string(b), flag.DelimLeft, flag.DelimRight, keyValue)
+
+	merged, err := template.Merge(string(bufTmpl), flag.DelimLeft, flag.DelimRight, keyValue)
 	if err != nil {
 		log.Error(fmt.Sprintf("%s", err), c.errStream)
 		return 1
@@ -115,6 +97,71 @@ func (c *cli) run(args []string) int {
 	fmt.Fprintf(c.outStream, "%s", merged)
 
 	return 0
+}
+
+func ( c *cli) loadKeyValue( tmplFile string, varFile string, variable map[string]string, bType string, args []string ) ( map[string]interface{}, error ) {
+	keyValue := map[string]interface{}{}
+	
+	var kvBuf []byte
+	if varFile == "-" {
+		if tmplFile != "-"  && !terminal.IsTerminal(0) && fmt.Sprintf("%s", c.inStream) != "" {
+			log.Debug("Get the key/values from pipe...", c.outStream)
+			pipe, err := ioutil.ReadAll(c.inStream)
+			if err != nil {
+				return keyValue, err
+			}
+			kvBuf = pipe
+		}
+	} else {
+		log.Debug( "Get the key.values from file...", c.outStream)
+		fbuf, err := ioutil.ReadFile( varFile )
+		if err != nil {
+			return keyValue, err
+		}
+		kvBuf = fbuf
+	}
+	bufKeyValue, err := backend.GetKeyValueFromString(bType, string(kvBuf))
+	if err != nil {
+		return keyValue, err
+	}
+	keyValue = mergeMapIfaceIface(keyValue, bufKeyValue)
+	log.Debug(fmt.Sprintf("Current key/value %+v", keyValue), c.outStream)
+
+	log.Debug("Get the key/value from backends...", c.outStream)
+	backendKeyValue, err := backend.GetKeyValueFromBackends(bType, args[1:])
+	if err != nil {
+		return keyValue, err
+	}
+	keyValue = mergeMapIfaceIface(keyValue, backendKeyValue)
+	log.Debug(fmt.Sprintf("Current key/value %+v", keyValue), c.outStream)
+
+	if len(variable) > 0 {
+		log.Debug("Get the key/values from v flag...", c.outStream)
+		mergeMapIfaceString(keyValue, variable)
+		log.Debug(fmt.Sprintf("Current key/values %+v", keyValue), c.outStream)
+	}
+	
+	return keyValue, nil
+}
+
+func ( c *cli ) loadTemplate( tmplFile string ) ( []byte, error ) {
+	var bufTmpl []byte
+	if tmplFile == "-" && !terminal.IsTerminal(0) && fmt.Sprintf("%s", c.inStream) != "" {
+		log.Debug( "Get the template from pipe...", c.outStream )
+		pipe, err := ioutil.ReadAll( c.inStream )
+		if err != nil {
+			return pipe, err
+		}
+		bufTmpl = pipe
+	} else {
+		log.Debug( "Get the template from file...", c.outStream )
+		buf, err := ioutil.ReadFile( tmplFile )
+		if err != nil {
+			return buf, err
+		}
+		bufTmpl = buf
+	}
+	return bufTmpl, nil
 }
 
 func mergeMapIfaceIface(m1, m2 map[string]interface{}) map[string]interface{} {

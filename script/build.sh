@@ -16,3 +16,5 @@ for GOOS in darwin linux; do
         go build -v -o output/syringe_${GOOS}_${GOARCH} main.go
     done
 done
+
+chown $UIDGID output/*
